@@ -17,7 +17,7 @@ const pluginOlDivVisibleClassName = "article-index-ai-plugin-ol-div-visible";
 async function createSession() {
     return await ai.languageModel.create({
         systemPrompt: `You summarize text. Your input will be a piece of text, and your role is to identify 3 key ideas. Present the 3 key ideas as a JSON map. 
-        Provide 1 word as the heading (main idea of the sentence) (the key of the map), followed by a sentence to explain the idea (the value).
+        Provide 1 word as the heading (main idea of the sentence) (the key of the map), followed by a sentence (string) to explain the idea (the value).
         Example output:
         {
             "Example Heading 1": "Example Idea 1",
@@ -40,7 +40,7 @@ function findElementsMatchingName(elementName, minCharLength) {
 }
 
 function findElementsMatchingClassWildcard(classNameWildcard, minCharLength) {
-    return Array.from(document.querySelectorAll(`.${classNameWildcard}`)).filter(el => el.textContent.trim().length >= minCharLength);
+    return Array.from(document.querySelectorAll(`[class*="${classNameWildcard}"]`)).filter(el => el.textContent.trim().length >= minCharLength);
 }
 
 function getElementsToSummarize() {
@@ -48,6 +48,8 @@ function getElementsToSummarize() {
     let elementsToSummarize = findElementsMatchingName("article", minCharLength);
     if (elementsToSummarize.length === 0) {
         elementsToSummarize = findElementsMatchingClassWildcard("content", minCharLength);
+    } else if (elementsToSummarize.length === 0) {
+        elementsToSummarize = findElementsMatchingClassWildcard("review", minCharLength);
     }
     return elementsToSummarize || [];
 }
