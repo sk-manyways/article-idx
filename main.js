@@ -1,5 +1,6 @@
 /*
 todo:
+- Test more than one section: https://www.viksnewsletter.com/p/short-intro-to-automotive-lidar
 - loading indicator
 - show source, under section
 - can we improve the system prompt?
@@ -36,19 +37,23 @@ async function getSummary(text) {
 }
 
 function findElementsMatchingName(elementName, minCharLength) {
-    return Array.from(document.querySelectorAll(elementName)).filter(el => el.textContent.trim().length >= minCharLength);
+    return Array.from(document.querySelectorAll(`${elementName}:not(:has(${elementName}))`))
+        .filter(el => el.innerText.trim().length >= minCharLength);
 }
 
 function findElementsMatchingClassWildcard(classNameWildcard, minCharLength) {
-    return Array.from(document.querySelectorAll(`[class*="${classNameWildcard}"]`)).filter(el => el.textContent.trim().length >= minCharLength);
+    return Array.from(document.querySelectorAll(`[class*="${classNameWildcard}"]`))
+        .filter(el => !el.querySelector(`[class*="${classNameWildcard}"]`)
+            && el.innerText.trim().length >= minCharLength);
 }
 
 function getElementsToSummarize() {
-    const minCharLength = 1600;
+    const minCharLength = 1000;
     let elementsToSummarize = findElementsMatchingName("article", minCharLength);
     if (elementsToSummarize.length === 0) {
         elementsToSummarize = findElementsMatchingClassWildcard("content", minCharLength);
-    } else if (elementsToSummarize.length === 0) {
+    }
+    if (elementsToSummarize.length === 0) {
         elementsToSummarize = findElementsMatchingClassWildcard("review", minCharLength);
     }
     return elementsToSummarize || [];
@@ -72,7 +77,9 @@ function extractParagraphs(inputString) {
 
 function squashParagraphs(paragraphs, maxCharLength) {
     let squashed = []
+    let originalParagraphsList = []
 
+    let currentParagraphs = [];
     let currentGroup = "";
     let runningLength = 0;
     for (const paragraph of paragraphs) {
@@ -80,19 +87,26 @@ function squashParagraphs(paragraphs, maxCharLength) {
         if (candidateLength < maxCharLength) {
             runningLength = candidateLength;
             currentGroup += paragraph;
+            currentParagraphs.push(paragraph);
         } else {
             if (currentGroup.length > 0) {
                 squashed.push(currentGroup);
+                originalParagraphsList.push(currentParagraphs);
             }
             currentGroup = paragraph.substring(0, maxCharLength);
+            currentParagraphs.push(paragraph.substring(0, maxCharLength));
             runningLength = currentGroup.length;
         }
     }
     if (currentGroup.length > 0) {
         squashed.push(currentGroup);
+        originalParagraphsList.push(currentParagraphs);
     }
 
-    return squashed;
+    return {
+        paragraphsSquashed: squashed,
+        originalParagraphsList: originalParagraphsList
+    };
 }
 
 function createSummaryElement(summaryJson) {
@@ -107,24 +121,10 @@ function createSummaryElement(summaryJson) {
         spanHeader.classList.add(pluginOlSpanHeaderClassName);
         spanHeader.classList.add(pluginRightArrowClassName);
 
-        const mainIdeaDiv = document.createElement("div");
-        mainIdeaDiv.textContent = text;
-        mainIdeaDiv.classList.add(pluginOlDivHiddenClassName)
-
-        spanHeader.onclick = () => {
-            if (mainIdeaDiv.classList.contains(pluginOlDivHiddenClassName)) {
-                mainIdeaDiv.classList.remove(pluginOlDivHiddenClassName);
-                mainIdeaDiv.classList.add(pluginOlDivVisibleClassName);
-                spanHeader.classList.add(pluginDownArrowClassName);
-            } else {
-                mainIdeaDiv.classList.remove(pluginOlDivVisibleClassName);
-                mainIdeaDiv.classList.add(pluginOlDivHiddenClassName);
-                spanHeader.classList.remove(pluginDownArrowClassName);
-            }
-        };
+        const ideaTextDiv = createCollapsibleDiv(text, spanHeader);
 
         li.appendChild(spanHeader);
-        li.appendChild(mainIdeaDiv);
+        li.appendChild(ideaTextDiv);
 
         ol.appendChild(li);
     }
@@ -151,7 +151,6 @@ function addPluginStyles() {
         }
         
         .${pluginOlDivVisibleClassName} {
-          max-height: 100px;
           opacity: 1;
           transition: max-height 0.3s ease, opacity 0.3s ease;
         }
@@ -178,6 +177,100 @@ function addPluginStyles() {
     document.head.appendChild(styleElement);
 }
 
+function containsInvalidWord(summary) {
+    return summary.toLowerCase().includes("key idea")
+        || summary.toLowerCase().includes("keyidea")
+        || summary.toLowerCase().includes("articleindex")
+        || summary.toLowerCase().includes("article index")
+        || summary.toLowerCase().includes("example heading")
+        || summary.toLowerCase().includes("example idea");
+}
+
+function createCollapsibleDiv(text, collapsibleToggleElement) {
+    const ideaTextDiv = document.createElement("div");
+    ideaTextDiv.innerHTML = text;
+    ideaTextDiv.classList.add(pluginOlDivHiddenClassName)
+
+    collapsibleToggleElement.onclick = () => {
+        if (ideaTextDiv.classList.contains(pluginOlDivHiddenClassName)) {
+            ideaTextDiv.classList.remove(pluginOlDivHiddenClassName);
+            ideaTextDiv.classList.add(pluginOlDivVisibleClassName);
+            collapsibleToggleElement.classList.add(pluginDownArrowClassName);
+        } else {
+            ideaTextDiv.classList.remove(pluginOlDivVisibleClassName);
+            ideaTextDiv.classList.add(pluginOlDivHiddenClassName);
+            collapsibleToggleElement.classList.remove(pluginDownArrowClassName);
+        }
+    };
+
+    return ideaTextDiv;
+}
+
+function createAndAppendArticleSourceElement(originalParagraphsString, articleSourceParent) {
+    const articleSourceElement = document.createElement("span");
+    articleSourceElement.textContent = "Source";
+    articleSourceElement.classList.add(pluginOlSpanHeaderClassName);
+    articleSourceElement.classList.add(pluginRightArrowClassName);
+    let sourceDiv = createCollapsibleDiv(originalParagraphsString, articleSourceElement);
+
+    articleSourceParent.appendChild(articleSourceElement)
+    articleSourceParent.appendChild(sourceDiv)
+}
+
+
+function appendElements(counter, articleIndexDiv, summaryJson, originalParagraphsString) {
+    const sectionLink = document.createElement("h3");
+    sectionLink.textContent = `Section ${counter}`;
+    articleIndexDiv.appendChild(sectionLink);
+
+    const summaryElement = createSummaryElement(summaryJson);
+    articleIndexDiv.appendChild(summaryElement);
+
+    createAndAppendArticleSourceElement(originalParagraphsString, articleIndexDiv);
+}
+
+async function processParagraphs(paragraphsSquashed, originalParagraphsList, articleIndexDiv) {
+    let counter = 0;
+
+    for (const paragraphSquash of paragraphsSquashed) {
+        let originalParagraphs = originalParagraphsList[0];
+        let originalParagraphsString = originalParagraphs.map(str => `<p>${str}</p>`).join("");
+        counter += 1;
+        let attempts = 0;
+        let max_attempts = 3;
+        while (attempts < max_attempts) {
+            attempts += 1;
+            let errorOccurred = false;
+
+            let summary = "";
+            try {
+                summary = await getSummary(paragraphSquash);
+            } catch (err) {
+                console.log(`Error generating summary: ${err}`);
+                errorOccurred = true;
+            }
+
+            let summaryJson = "";
+            try {
+                summaryJson = JSON.parse(summary);
+            } catch (err) {
+                console.log(`Error parsing summary json. Summary ${summary}; Error: ${err}`);
+                errorOccurred = true;
+            }
+
+            if (containsInvalidWord(summary)) {
+                console.log(`Summary container an invalid word ${summary}`);
+                errorOccurred = true;
+            }
+
+            if (!errorOccurred) {
+                appendElements(counter, articleIndexDiv, summaryJson, originalParagraphsString);
+                break;
+            }
+        }
+    }
+}
+
 async function main() {
     addPluginStyles();
 
@@ -192,61 +285,13 @@ async function main() {
         articleIndexH3.textContent = "Article Index (AI generated)"
         articleIndexDiv.appendChild(articleIndexH3);
 
+        let allParagraphs = extractParagraphs(element.innerText);
+
+        let {paragraphsSquashed, originalParagraphsList} = squashParagraphs(allParagraphs, maxCharLength);
+
         element.prepend(articleIndexDiv);
 
-        let allParagraphs = extractParagraphs(element.innerHTML);
-
-        let paragraphsSquashed = squashParagraphs(allParagraphs, maxCharLength);
-
-        let counter = 0;
-        for (const paragraphSquash of paragraphsSquashed) {
-            counter += 1;
-            let attempts = 0;
-            let max_attempts = 2;
-            while (attempts < max_attempts) {
-                attempts += 1;
-                let errorOccurred = false;
-
-                const sectionLink = document.createElement("a");
-                sectionLink.href = "#";
-                sectionLink.textContent = `Section ${counter}`;
-
-                let summary = "";
-                try {
-                    summary = await getSummary(paragraphSquash);
-                } catch (err) {
-                    console.log(`Error generating summary: ${err}`);
-                    errorOccurred = true;
-                }
-
-                let summaryJson = "";
-                try {
-                    summaryJson = JSON.parse(summary);
-                } catch (err) {
-                    console.log(`Error parsing summary json. Summary ${summary}; Error: ${err}`);
-                    errorOccurred = true;
-                }
-
-                if (summary.toLowerCase().includes("key idea")
-                    || summary.toLowerCase().includes("keyidea")
-                    || summary.toLowerCase().includes("articleindex")
-                    || summary.toLowerCase().includes("article index")
-                    || summary.toLowerCase().includes("example heading")
-                    || summary.toLowerCase().includes("example idea")) {
-                    console.log(`Summary container an invalid word ${summary}`);
-                    errorOccurred = true;
-                }
-
-                if (!errorOccurred) {
-                    articleIndexDiv.appendChild(sectionLink);
-                    const summaryElement = createSummaryElement(summaryJson);
-                    console.log("appending element...");
-                    articleIndexDiv.appendChild(summaryElement);
-                    console.log("element appended");
-                    break;
-                }
-            }
-        }
+        await processParagraphs(paragraphsSquashed, originalParagraphsList, articleIndexDiv);
     }
 }
 
