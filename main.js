@@ -1,8 +1,8 @@
 /*
 todo:
-- loading indicator
 - let the "Section" take you to that part of the article. (remove Source). (and a little arrow to jump back up?)
 - Can we make it "triggered"?
+- Better/consistent style
  */
 
 const pluginContainerDivClassName = "article-index-ai-plugin-container-div";
@@ -12,6 +12,7 @@ const pluginRightArrowClassName = "article-index-ai-plugin-right-arrow";
 const pluginDownArrowClassName = "article-index-ai-plugin-down-arrow";
 const pluginOlDivHiddenClassName = "article-index-ai-plugin-ol-div-hidden";
 const pluginOlDivVisibleClassName = "article-index-ai-plugin-ol-div-visible";
+const pluginLoadingIndicatorId = "article-index-ai-plugin-loading-indicator-id";
 
 async function createSession() {
     return await ai.languageModel.create({
@@ -27,10 +28,12 @@ async function createSession() {
     });
 }
 
+let session;
+
 async function getSummary(text) {
-    // if (!session) {
-    let session = await createSession();
-    // }
+    if (!session) {
+        session = await createSession();
+    }
     return session.prompt(text);
 }
 
@@ -169,11 +172,13 @@ function addPluginStyles() {
 
 function containsInvalidWord(summary) {
     return summary.toLowerCase().includes("key idea")
+        || summary.toLowerCase().includes("key 1")
         || summary.toLowerCase().includes("keyidea")
         || summary.toLowerCase().includes("articleindex")
         || summary.toLowerCase().includes("article index")
         || summary.toLowerCase().includes("example heading")
-        || summary.toLowerCase().includes("example idea");
+        || summary.toLowerCase().includes("example idea")
+        || summary.toLowerCase().includes("object Object");
 }
 
 function createCollapsibleDiv(text, collapsibleToggleElement) {
@@ -245,45 +250,66 @@ async function main() {
     }
 }
 
+function addLoadingIndicator(parent) {
+    const loader = document.createElement('div');
+    loader.id = pluginLoadingIndicatorId;
+    loader.innerHTML = "<img alt='loading' src='https://cdn.pixabay.com/animation/2024/04/02/07/57/07-57-40-974_256.gif' style='width: 30px; height: 30px;'>";
+    parent.appendChild(loader);
+}
+
+function removeLoadingIndicator(parent) {
+    const loader = parent.querySelector(`#${pluginLoadingIndicatorId}`);
+    if (loader) loader.remove();
+}
+
 async function processParagraphs(paragraphsSquashed, originalParagraphsList, articleIndexDiv) {
     let counter = 0;
 
     for (const paragraphSquash of paragraphsSquashed) {
-        let originalParagraphs = originalParagraphsList[counter];
-        let originalParagraphsString = originalParagraphs.join("");
-        counter += 1;
-        let attempts = 0;
-        let max_attempts = 3;
-        while (attempts < max_attempts) {
-            attempts += 1;
-            let errorOccurred = false;
+        try {
+            addLoadingIndicator(articleIndexDiv);
+            let originalParagraphs = originalParagraphsList[counter];
+            let originalParagraphsString = originalParagraphs.join("");
+            counter += 1;
+            let attempts = 0;
+            let max_attempts = 3;
+            while (attempts < max_attempts) {
+                try {
+                    attempts += 1;
+                    let errorOccurred = false;
 
-            let summary = "";
-            try {
-                summary = await getSummary(paragraphSquash);
-            } catch (err) {
-                console.log(`Error generating summary: ${err}`);
-                errorOccurred = true;
-            }
+                    let summary = "";
+                    try {
+                        summary = await getSummary(paragraphSquash);
+                    } catch (err) {
+                        console.log(`Error generating summary: ${err}`);
+                        errorOccurred = true;
+                    }
 
-            let summaryJson = "";
-            try {
-                summaryJson = JSON.parse(summary);
-            } catch (err) {
-                console.log(`Error parsing summary json. Summary ${summary}; Error: ${err}`);
-                errorOccurred = true;
-            }
+                    let summaryJson = "";
+                    try {
+                        summaryJson = JSON.parse(summary);
+                    } catch (err) {
+                        console.log(`Error parsing summary json. Summary ${summary}; Error: ${err}`);
+                        errorOccurred = true;
+                    }
 
-            if (containsInvalidWord(summary)) {
-                console.log(`Summary container an invalid word ${summary}`);
-                errorOccurred = true;
-            }
+                    if (containsInvalidWord(summary)) {
+                        console.log(`Summary container an invalid word ${summary}`);
+                        errorOccurred = true;
+                    }
 
-            if (!errorOccurred) {
-                let doAppendSection = counter > 1 || paragraphsSquashed.length > 1;
-                appendElements(counter, articleIndexDiv, summaryJson, originalParagraphsString, doAppendSection);
-                break;
+                    if (!errorOccurred) {
+                        let doAppendSection = counter > 1 || paragraphsSquashed.length > 1;
+                        appendElements(counter, articleIndexDiv, summaryJson, originalParagraphsString, doAppendSection);
+                        break;
+                    }
+                } catch (e) {
+                    console.log("Error occurred", e);
+                }
             }
+        } finally {
+            removeLoadingIndicator(articleIndexDiv);
         }
     }
 }
