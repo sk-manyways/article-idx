@@ -1,12 +1,10 @@
 /*
 todo:
-- Test more than one section: https://www.viksnewsletter.com/p/short-intro-to-automotive-lidar
 - loading indicator
-- show source, under section
-- can we improve the system prompt?
+- let the "Section" take you to that part of the article. (remove Source). (and a little arrow to jump back up?)
+- Can we make it "triggered"?
  */
 
-let session;
 const pluginContainerDivClassName = "article-index-ai-plugin-container-div";
 const pluginOlClassName = "article-index-ai-plugin-ol";
 const pluginOlSpanHeaderClassName = "article-index-ai-plugin-ol-span-header";
@@ -30,9 +28,9 @@ async function createSession() {
 }
 
 async function getSummary(text) {
-    if (!session) {
-        session = await createSession();
-    }
+    // if (!session) {
+    let session = await createSession();
+    // }
     return session.prompt(text);
 }
 
@@ -60,26 +58,18 @@ function getElementsToSummarize() {
 }
 
 function extractParagraphs(inputString) {
-    if (inputString.includes("<p>")) {
-        return inputString
-            .split(/<\/?p>/)
-            .map(paragraph => paragraph.trim())
-            .filter(paragraph => paragraph.length > 0);
-    } else if (inputString.includes("<br>")) {
-        return inputString
-            .split(/<br\s*\/?>/)
-            .map(paragraph => paragraph.trim())
-            .filter(paragraph => paragraph.length > 0);
-    } else {
-        return [inputString.trim()];
-    }
+    return inputString
+        .split(/\n+/)
+        .map(paragraph => paragraph.trim())
+        .filter(paragraph => paragraph.length > 0);
 }
+
 
 function squashParagraphs(paragraphs, maxCharLength) {
     let squashed = []
     let originalParagraphsList = []
 
-    let currentParagraphs = [];
+    let originalParagraph = [];
     let currentGroup = "";
     let runningLength = 0;
     for (const paragraph of paragraphs) {
@@ -87,20 +77,20 @@ function squashParagraphs(paragraphs, maxCharLength) {
         if (candidateLength < maxCharLength) {
             runningLength = candidateLength;
             currentGroup += paragraph;
-            currentParagraphs.push(paragraph);
+            originalParagraph.push('<p>' + paragraph + '</p>');
         } else {
             if (currentGroup.length > 0) {
                 squashed.push(currentGroup);
-                originalParagraphsList.push(currentParagraphs);
+                originalParagraphsList.push(originalParagraph);
             }
             currentGroup = paragraph.substring(0, maxCharLength);
-            currentParagraphs.push(paragraph.substring(0, maxCharLength));
+            originalParagraph = ['<p>' + paragraph.substring(0, maxCharLength) + '</p>'];
             runningLength = currentGroup.length;
         }
     }
     if (currentGroup.length > 0) {
         squashed.push(currentGroup);
-        originalParagraphsList.push(currentParagraphs);
+        originalParagraphsList.push(originalParagraph);
     }
 
     return {
@@ -218,10 +208,12 @@ function createAndAppendArticleSourceElement(originalParagraphsString, articleSo
 }
 
 
-function appendElements(counter, articleIndexDiv, summaryJson, originalParagraphsString) {
-    const sectionLink = document.createElement("h3");
-    sectionLink.textContent = `Section ${counter}`;
-    articleIndexDiv.appendChild(sectionLink);
+function appendElements(counter, articleIndexDiv, summaryJson, originalParagraphsString, doAppendSection) {
+    if (doAppendSection) {
+        const sectionLink = document.createElement("h3");
+        sectionLink.textContent = `Section ${counter}`;
+        articleIndexDiv.appendChild(sectionLink);
+    }
 
     const summaryElement = createSummaryElement(summaryJson);
     articleIndexDiv.appendChild(summaryElement);
@@ -229,12 +221,36 @@ function appendElements(counter, articleIndexDiv, summaryJson, originalParagraph
     createAndAppendArticleSourceElement(originalParagraphsString, articleIndexDiv);
 }
 
+async function main() {
+    addPluginStyles();
+
+    let elementsToSummarize = getElementsToSummarize();
+    let maxCharLength = 4500;
+
+    for (const element of elementsToSummarize) {
+        const articleIndexDiv = document.createElement("div");
+        articleIndexDiv.classList.add(pluginContainerDivClassName);
+
+        const articleIndexH3 = document.createElement("h3");
+        articleIndexH3.textContent = "Article Index (AI generated)"
+        articleIndexDiv.appendChild(articleIndexH3);
+
+        let allParagraphs = extractParagraphs(element.innerText);
+
+        let {paragraphsSquashed, originalParagraphsList} = squashParagraphs(allParagraphs, maxCharLength);
+
+        element.prepend(articleIndexDiv);
+
+        await processParagraphs(paragraphsSquashed, originalParagraphsList, articleIndexDiv);
+    }
+}
+
 async function processParagraphs(paragraphsSquashed, originalParagraphsList, articleIndexDiv) {
     let counter = 0;
 
     for (const paragraphSquash of paragraphsSquashed) {
-        let originalParagraphs = originalParagraphsList[0];
-        let originalParagraphsString = originalParagraphs.map(str => `<p>${str}</p>`).join("");
+        let originalParagraphs = originalParagraphsList[counter];
+        let originalParagraphsString = originalParagraphs.join("");
         counter += 1;
         let attempts = 0;
         let max_attempts = 3;
@@ -264,34 +280,11 @@ async function processParagraphs(paragraphsSquashed, originalParagraphsList, art
             }
 
             if (!errorOccurred) {
-                appendElements(counter, articleIndexDiv, summaryJson, originalParagraphsString);
+                let doAppendSection = counter > 1 || paragraphsSquashed.length > 1;
+                appendElements(counter, articleIndexDiv, summaryJson, originalParagraphsString, doAppendSection);
                 break;
             }
         }
-    }
-}
-
-async function main() {
-    addPluginStyles();
-
-    let elementsToSummarize = getElementsToSummarize();
-    let maxCharLength = 4500;
-
-    for (const element of elementsToSummarize) {
-        const articleIndexDiv = document.createElement("div");
-        articleIndexDiv.classList.add(pluginContainerDivClassName);
-
-        const articleIndexH3 = document.createElement("h3");
-        articleIndexH3.textContent = "Article Index (AI generated)"
-        articleIndexDiv.appendChild(articleIndexH3);
-
-        let allParagraphs = extractParagraphs(element.innerText);
-
-        let {paragraphsSquashed, originalParagraphsList} = squashParagraphs(allParagraphs, maxCharLength);
-
-        element.prepend(articleIndexDiv);
-
-        await processParagraphs(paragraphsSquashed, originalParagraphsList, articleIndexDiv);
     }
 }
 
