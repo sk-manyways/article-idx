@@ -3,6 +3,7 @@ todo:
 - let the "Section" take you to that part of the article. (remove Source). (and a little arrow to jump back up?)
 - Can we make it "triggered"? Or we just make it configurable which domains use this.
 - Better/consistent style
+- Execute on Ajax event
 - Caching (if it generated all sections)
  */
 
@@ -59,6 +60,9 @@ function getElementsToSummarize() {
     }
     if (elementsToSummarize.length === 0) {
         elementsToSummarize = findElementsMatchingClassWildcard("review", minCharLength);
+    }
+    if (elementsToSummarize.length === 0) {
+        elementsToSummarize = findElementsMatchingClassWildcard("post", minCharLength);
     }
     return elementsToSummarize || [];
 }
@@ -200,6 +204,7 @@ function squashParagraphs(paragraphs, maxCharLength, paragraphContainerElement) 
         if (candidateLength < maxCharLength) {
             runningLength = candidateLength;
             currentGroup += " " + paragraph;
+            currentGroup = currentGroup.trim();
         } else {
             if (currentGroup.length > 0) {
                 lastId = addSquashedParagraph(squashed, currentGroup, lastId, paragraphContainerElement, paragraphsSquashedIdList, lastGroupLength);
