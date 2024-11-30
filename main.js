@@ -3,16 +3,18 @@ todo:
 - let the "Section" take you to that part of the article. (remove Source). (and a little arrow to jump back up?)
 - Can we make it "triggered"?
 - Better/consistent style
+- Caching (if it generated all sections)
  */
 
-const pluginContainerDivClassName = "article-index-ai-plugin-container-div";
-const pluginOlClassName = "article-index-ai-plugin-ol";
-const pluginOlSpanHeaderClassName = "article-index-ai-plugin-ol-span-header";
-const pluginRightArrowClassName = "article-index-ai-plugin-right-arrow";
-const pluginDownArrowClassName = "article-index-ai-plugin-down-arrow";
-const pluginOlDivHiddenClassName = "article-index-ai-plugin-ol-div-hidden";
-const pluginOlDivVisibleClassName = "article-index-ai-plugin-ol-div-visible";
-const pluginLoadingIndicatorId = "article-index-ai-plugin-loading-indicator-id";
+var pluginContainerDivClassName = "article-index-ai-plugin-container-div";
+var pluginOlClassName = "article-index-ai-plugin-ol";
+var pluginOlSpanHeaderClassName = "article-index-ai-plugin-ol-span-header";
+var pluginRightArrowClassName = "article-index-ai-plugin-right-arrow";
+var pluginDownArrowClassName = "article-index-ai-plugin-down-arrow";
+var pluginOlDivHiddenClassName = "article-index-ai-plugin-ol-div-hidden";
+var pluginOlDivVisibleClassName = "article-index-ai-plugin-ol-div-visible";
+var pluginLoadingIndicatorId = "article-index-ai-plugin-loading-indicator";
+var pluginHighlightedTextClassName = "article-index-ai-plugin-highlighted-text";
 
 async function createSession() {
     return await ai.languageModel.create({
@@ -29,6 +31,7 @@ async function createSession() {
 }
 
 let session;
+const maxCharLength = 4500;
 
 async function getSummary(text) {
     if (!session) {
@@ -67,38 +70,135 @@ function extractParagraphs(inputString) {
         .filter(paragraph => paragraph.length > 0);
 }
 
+function getRandomElementId() {
+    return "article-index-ai-plugin-" + Math.random() * 100_000;
+}
 
-function squashParagraphs(paragraphs, maxCharLength) {
+function findImmediateParentContainingText(mainElement, text) {
+    const elements = mainElement.querySelectorAll('*');
+    for (const element of elements) {
+        if (element.childNodes.length > 0) {
+            for (const node of element.childNodes) {
+                if (node.nodeType === Node.TEXT_NODE && node.nodeValue.includes(text)) {
+                    return element;
+                }
+            }
+        }
+    }
+    return null;
+}
+
+function findImmediateParentContainingTextAfterId(mainElement, text, startingId, lastGroupLength) {
+    let passedIdElement = true;
+    if (startingId) {
+        const idElement = document.getElementById(startingId);
+        if (idElement) {
+            passedIdElement = false;
+        }
+    }
+    let found = null;
+    let charCount = 0;
+
+    function traverse(node) {
+        if (found) return;
+
+        if (!passedIdElement && node.nodeType === Node.ELEMENT_NODE && node.id === startingId) {
+            charCount += node.textContent.length;
+            passedIdElement = true;
+            return; // Skip the subtree of the element with the specified startingId
+        }
+
+        // If we've passed the startingId element, check for the text
+        if (passedIdElement && node.nodeValue) {
+            let index = node.nodeValue.indexOf(text);
+            if (index !== -1) {
+                let totalOffset = charCount + index;
+                if (totalOffset >= lastGroupLength) {
+                    found = node.parentElement;
+                    return;
+                }
+            }
+            charCount += node.nodeValue.length;
+        }
+
+        let child = node.firstChild;
+        while (child) {
+            traverse(child);
+            child = child.nextSibling;
+        }
+    }
+
+    traverse(mainElement);
+
+    return found;
+}
+
+/*
+returns the id of the first element in the section
+ */
+function setIdOnElement(lastId, paragraphContainerElement, firstWord, paragraphsSquashedIdList, lastGroupLength) {
+    let element = null;
+    let idUsed = -1;
+    if (lastId == null) {
+        element = findImmediateParentContainingText(paragraphContainerElement, firstWord)
+    } else {
+        element = findImmediateParentContainingTextAfterId(paragraphContainerElement, firstWord, lastId, lastGroupLength);
+    }
+    if (element.id) {
+        paragraphsSquashedIdList.push(element.id);
+        idUsed = element.id;
+    } else {
+        const newId = getRandomElementId();
+        element.id = newId;
+        paragraphsSquashedIdList.push(newId);
+        idUsed = newId;
+    }
+
+    return idUsed;
+}
+
+/*
+returns the id of the first element in the section
+ */
+function addSquashedParagraph(squashed, currentGroup, lastId, paragraphContainerElement, paragraphsSquashedIdList, lastGroupLength) {
+    squashed.push(currentGroup);
+
+    // use the first word, to find the starting tag in HTML
+    const firstWord = currentGroup.substring(0, currentGroup.indexOf(" "));
+    return setIdOnElement(lastId, paragraphContainerElement, firstWord, paragraphsSquashedIdList, lastGroupLength);
+}
+
+function squashParagraphs(paragraphs, maxCharLength, paragraphContainerElement) {
     let squashed = []
-    let originalParagraphsList = []
+    let paragraphsSquashedIdList = []
+    debugger
 
-    let originalParagraph = [];
+    let lastId = null;
+    let lastGroupLength = 0;
     let currentGroup = "";
     let runningLength = 0;
+
     for (const paragraph of paragraphs) {
         let candidateLength = runningLength + paragraph.length;
         if (candidateLength < maxCharLength) {
             runningLength = candidateLength;
             currentGroup += paragraph;
-            originalParagraph.push('<p>' + paragraph + '</p>');
         } else {
             if (currentGroup.length > 0) {
-                squashed.push(currentGroup);
-                originalParagraphsList.push(originalParagraph);
+                lastId = addSquashedParagraph(squashed, currentGroup, lastId, paragraphContainerElement, paragraphsSquashedIdList, lastGroupLength);
+                lastGroupLength = currentGroup.length;
             }
             currentGroup = paragraph.substring(0, maxCharLength);
-            originalParagraph = ['<p>' + paragraph.substring(0, maxCharLength) + '</p>'];
             runningLength = currentGroup.length;
         }
     }
     if (currentGroup.length > 0) {
-        squashed.push(currentGroup);
-        originalParagraphsList.push(originalParagraph);
+        addSquashedParagraph(squashed, currentGroup, lastId, paragraphContainerElement, paragraphsSquashedIdList, lastGroupLength);
     }
 
     return {
         paragraphsSquashed: squashed,
-        originalParagraphsList: originalParagraphsList
+        paragraphsSquashedIdList: paragraphsSquashedIdList
     };
 }
 
@@ -166,6 +266,11 @@ function addPluginStyles() {
           transform: rotate(90deg);
           transition: transform 0.3s ease;
         }
+        
+        .${pluginHighlightedTextClassName} {
+            background-color: #f3f3c0;
+            transition: transform 0.3s ease;
+        }
         `;
     document.head.appendChild(styleElement);
 }
@@ -201,36 +306,22 @@ function createCollapsibleDiv(text, collapsibleToggleElement) {
     return ideaTextDiv;
 }
 
-function createAndAppendArticleSourceElement(originalParagraphsString, articleSourceParent) {
-    const articleSourceElement = document.createElement("span");
-    articleSourceElement.textContent = "Source";
-    articleSourceElement.classList.add(pluginOlSpanHeaderClassName);
-    articleSourceElement.classList.add(pluginRightArrowClassName);
-    let sourceDiv = createCollapsibleDiv(originalParagraphsString, articleSourceElement);
-
-    articleSourceParent.appendChild(articleSourceElement)
-    articleSourceParent.appendChild(sourceDiv)
-}
-
-
-function appendElements(counter, articleIndexDiv, summaryJson, originalParagraphsString, doAppendSection) {
+function appendElements(counter, articleIndexDiv, summaryJson, doAppendSection, paragraphsSquashedId) {
     if (doAppendSection) {
-        const sectionLink = document.createElement("h3");
+        const sectionLink = document.createElement("a");
         sectionLink.textContent = `Section ${counter}`;
+        sectionLink.href = `#${paragraphsSquashedId}`
         articleIndexDiv.appendChild(sectionLink);
     }
 
     const summaryElement = createSummaryElement(summaryJson);
     articleIndexDiv.appendChild(summaryElement);
-
-    createAndAppendArticleSourceElement(originalParagraphsString, articleIndexDiv);
 }
 
 async function main() {
     addPluginStyles();
 
     let elementsToSummarize = getElementsToSummarize();
-    let maxCharLength = 4500;
 
     for (const element of elementsToSummarize) {
         const articleIndexDiv = document.createElement("div");
@@ -242,11 +333,14 @@ async function main() {
 
         let allParagraphs = extractParagraphs(element.innerText);
 
-        let {paragraphsSquashed, originalParagraphsList} = squashParagraphs(allParagraphs, maxCharLength);
+        let {
+            paragraphsSquashed,
+            paragraphsSquashedIdList
+        } = squashParagraphs(allParagraphs, maxCharLength, element);
 
         element.prepend(articleIndexDiv);
 
-        await processParagraphs(paragraphsSquashed, originalParagraphsList, articleIndexDiv);
+        await processParagraphs(paragraphsSquashed, paragraphsSquashedIdList, articleIndexDiv);
     }
 }
 
@@ -262,17 +356,16 @@ function removeLoadingIndicator(parent) {
     if (loader) loader.remove();
 }
 
-async function processParagraphs(paragraphsSquashed, originalParagraphsList, articleIndexDiv) {
+async function processParagraphs(paragraphsSquashed, paragraphsSquashedIdList, articleIndexDiv) {
     let counter = 0;
 
     for (const paragraphSquash of paragraphsSquashed) {
         try {
+            let paragraphsSquashedId = paragraphsSquashedIdList[counter];
             addLoadingIndicator(articleIndexDiv);
-            let originalParagraphs = originalParagraphsList[counter];
-            let originalParagraphsString = originalParagraphs.join("");
             counter += 1;
             let attempts = 0;
-            let max_attempts = 3;
+            let max_attempts = 4;
             while (attempts < max_attempts) {
                 try {
                     attempts += 1;
@@ -301,7 +394,7 @@ async function processParagraphs(paragraphsSquashed, originalParagraphsList, art
 
                     if (!errorOccurred) {
                         let doAppendSection = counter > 1 || paragraphsSquashed.length > 1;
-                        appendElements(counter, articleIndexDiv, summaryJson, originalParagraphsString, doAppendSection);
+                        appendElements(counter, articleIndexDiv, summaryJson, doAppendSection, paragraphsSquashedId);
                         break;
                     }
                 } catch (e) {
