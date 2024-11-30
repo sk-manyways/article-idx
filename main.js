@@ -1,7 +1,7 @@
 /*
 todo:
 - let the "Section" take you to that part of the article. (remove Source). (and a little arrow to jump back up?)
-- Can we make it "triggered"?
+- Can we make it "triggered"? Or we just make it configurable which domains use this.
 - Better/consistent style
 - Caching (if it generated all sections)
  */
@@ -19,7 +19,7 @@ var pluginHighlightedTextClassName = "article-index-ai-plugin-highlighted-text";
 async function createSession() {
     return await ai.languageModel.create({
         systemPrompt: `You summarize text. Your input will be a piece of text, and your role is to identify 3 key ideas. Present the 3 key ideas as a JSON map. 
-        Provide 1 word as the heading (main idea of the sentence) (the key of the map), followed by a sentence (string) to explain the idea (the value).
+        Provide 1 word as the heading (main idea of the sentence)(string, the key of the map entry), followed by a sentence (string) to explain the idea (the value of the map entry). Do not provide anything outside the JSON output.
         Example output:
         {
             "Example Heading 1": "Example Idea 1",
@@ -79,7 +79,7 @@ function findImmediateParentContainingText(mainElement, text) {
     for (const element of elements) {
         if (element.childNodes.length > 0) {
             for (const node of element.childNodes) {
-                if (node.nodeType === Node.TEXT_NODE && node.nodeValue.includes(text)) {
+                if (node.nodeType === Node.TEXT_NODE && node.textContent.toLowerCase().includes(text.toLowerCase())) {
                     return element;
                 }
             }
@@ -103,6 +103,24 @@ function findImmediateParentContainingTextAfterId(mainElement, text, startingId,
         if (found) return;
 
         if (!passedIdElement && node.nodeType === Node.ELEMENT_NODE && node.id === startingId) {
+            // get the deepest child, we may have a top-level article element, where then textContent is the entire article e.g. https://www.viksnewsletter.com/p/short-intro-to-automotive-lidar#article-index-ai-plugin-20372.110770104457
+            // let childNode = node.firstChild;
+            // let childToUse = node;
+            // while (childNode) {
+            //     childToUse = childNode;
+            //     childNode = childNode.firstChild;
+            // }
+            // if (node.nodeValue) {
+            //     charCount += node.nodeValue.length;
+            // } else {
+            //     let childNode = node.firstChild;
+            //     while (childNode && childNode.textContent && childNode.textContent > lastGroupLength) {
+            //         childNode = childNode.firstChild;
+            //     }
+            //     if (childNode) {
+            //         charCount += childNode.textContent.length;
+            //     }
+            // }
             charCount += node.textContent.length;
             passedIdElement = true;
             return; // Skip the subtree of the element with the specified startingId
@@ -110,11 +128,15 @@ function findImmediateParentContainingTextAfterId(mainElement, text, startingId,
 
         // If we've passed the startingId element, check for the text
         if (passedIdElement && node.nodeValue) {
-            let index = node.nodeValue.indexOf(text);
-            if (index !== -1) {
-                let totalOffset = charCount + index;
-                if (totalOffset >= lastGroupLength) {
-                    found = node.parentElement;
+
+            if (charCount + node.nodeValue.length >= lastGroupLength) {
+                let index = node.nodeValue.toLowerCase().indexOf(text.toLowerCase());
+                if (index !== -1) {
+                    if (node.previousSibling && node.previousSibling.nodeValue && node.previousSibling.nodeValue.length < 10) {
+                        found = node.previousSibling;
+                    } else {
+                        found = node.parentElement;
+                    }
                     return;
                 }
             }
@@ -137,13 +159,8 @@ function findImmediateParentContainingTextAfterId(mainElement, text, startingId,
 returns the id of the first element in the section
  */
 function setIdOnElement(lastId, paragraphContainerElement, firstWord, paragraphsSquashedIdList, lastGroupLength) {
-    let element = null;
+    let element = findImmediateParentContainingTextAfterId(paragraphContainerElement, firstWord, lastId, lastGroupLength);
     let idUsed = -1;
-    if (lastId == null) {
-        element = findImmediateParentContainingText(paragraphContainerElement, firstWord)
-    } else {
-        element = findImmediateParentContainingTextAfterId(paragraphContainerElement, firstWord, lastId, lastGroupLength);
-    }
     if (element.id) {
         paragraphsSquashedIdList.push(element.id);
         idUsed = element.id;
@@ -182,7 +199,7 @@ function squashParagraphs(paragraphs, maxCharLength, paragraphContainerElement) 
         let candidateLength = runningLength + paragraph.length;
         if (candidateLength < maxCharLength) {
             runningLength = candidateLength;
-            currentGroup += paragraph;
+            currentGroup += " " + paragraph;
         } else {
             if (currentGroup.length > 0) {
                 lastId = addSquashedParagraph(squashed, currentGroup, lastId, paragraphContainerElement, paragraphsSquashedIdList, lastGroupLength);
@@ -240,10 +257,11 @@ function addPluginStyles() {
           max-height: 0;
           overflow: hidden;
           opacity: 0;
-          transition: max-height 0.3s ease, opacity 0.3s ease;
+          transition: max-height 0.1s ease, opacity 0.1s ease;
         }
         
         .${pluginOlDivVisibleClassName} {
+          max-height: 500px;
           opacity: 1;
           transition: max-height 0.3s ease, opacity 0.3s ease;
         }
@@ -306,7 +324,7 @@ function createCollapsibleDiv(text, collapsibleToggleElement) {
     return ideaTextDiv;
 }
 
-function appendElements(counter, articleIndexDiv, summaryJson, doAppendSection, paragraphsSquashedId) {
+function appendElements(counter, articleIndexDiv, summaryJson, doAppendSection, paragraphsSquashedId, doAppendSummary) {
     if (doAppendSection) {
         const sectionLink = document.createElement("a");
         sectionLink.textContent = `Section ${counter}`;
@@ -314,8 +332,10 @@ function appendElements(counter, articleIndexDiv, summaryJson, doAppendSection, 
         articleIndexDiv.appendChild(sectionLink);
     }
 
-    const summaryElement = createSummaryElement(summaryJson);
-    articleIndexDiv.appendChild(summaryElement);
+    if (doAppendSummary) {
+        const summaryElement = createSummaryElement(summaryJson);
+        articleIndexDiv.appendChild(summaryElement);
+    }
 }
 
 async function main() {
@@ -356,6 +376,49 @@ function removeLoadingIndicator(parent) {
     if (loader) loader.remove();
 }
 
+/*
+Fixes double quotes within double quotes.
+ */
+function fixBasicJsonMistakes(summary) {
+    const lines = summary.split('\n');
+
+    const processedLines = lines.map(line => {
+        let result = '';
+        line = line.trim();
+        let lastDoubleQuoteIndex = line.lastIndexOf('"');
+
+        for (let i = 0; i < line.length; i++) {
+            let c = line[i];
+            if (c === '"') {
+                // Check if this double quote should be removed
+                let isFirstCharOfLine = (i === 0);
+                let isLastDoubleQuote = (i === lastDoubleQuoteIndex);
+                let nextChar = line[i + 1] || '';
+                let prevChar1 = line[i - 1] || '';
+                let prevChar2 = line[i - 2] || '';
+
+                if (
+                    !isFirstCharOfLine &&    // Not the first character of the line
+                    !isLastDoubleQuote &&    // Not the last double quote in the line
+                    nextChar !== ':' &&      // Not followed by a colon
+                    nextChar !== ',' &&      // Not followed by a comma
+                    prevChar1 !== ':' &&     // Not preceded by a colon
+                    prevChar2 !== ':'        // Not preceded by a colon two characters back
+                ) {
+                    // Skip this double quote
+                    continue;
+                }
+            }
+            // Add the character to the result
+            result += c;
+        }
+        return result;
+    });
+
+    // Join the processed lines back into a single string
+    return processedLines.join('\n');
+}
+
 async function processParagraphs(paragraphsSquashed, paragraphsSquashedIdList, articleIndexDiv) {
     let counter = 0;
 
@@ -366,10 +429,12 @@ async function processParagraphs(paragraphsSquashed, paragraphsSquashedIdList, a
             counter += 1;
             let attempts = 0;
             let max_attempts = 4;
+            let errorOccurred = false;
+            let summaryJson = "";
+
             while (attempts < max_attempts) {
                 try {
                     attempts += 1;
-                    let errorOccurred = false;
 
                     let summary = "";
                     try {
@@ -379,9 +444,13 @@ async function processParagraphs(paragraphsSquashed, paragraphsSquashedIdList, a
                         errorOccurred = true;
                     }
 
-                    let summaryJson = "";
                     try {
-                        summaryJson = JSON.parse(summary);
+                        try {
+                            summaryJson = JSON.parse(summary);
+                        } catch (err) {
+                            summary = fixBasicJsonMistakes(summary);
+                            summaryJson = JSON.parse(summary);
+                        }
                     } catch (err) {
                         console.log(`Error parsing summary json. Summary ${summary}; Error: ${err}`);
                         errorOccurred = true;
@@ -393,14 +462,15 @@ async function processParagraphs(paragraphsSquashed, paragraphsSquashedIdList, a
                     }
 
                     if (!errorOccurred) {
-                        let doAppendSection = counter > 1 || paragraphsSquashed.length > 1;
-                        appendElements(counter, articleIndexDiv, summaryJson, doAppendSection, paragraphsSquashedId);
                         break;
                     }
                 } catch (e) {
                     console.log("Error occurred", e);
                 }
             }
+
+            let doAppendSection = counter > 1 || paragraphsSquashed.length > 1;
+            appendElements(counter, articleIndexDiv, summaryJson, doAppendSection, paragraphsSquashedId, !errorOccurred);
         } finally {
             removeLoadingIndicator(articleIndexDiv);
         }
