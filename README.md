@@ -1,4 +1,4 @@
-A Chrome plugin, which finds articles on your current webpage and creates and index (table of contents) above it. 
+A Chrome plugin, which finds articles on your current webpage and creates and index (table of contents) above it. (at time of writing *only* in Chrome Canary with AI support)
 
 It does this by breaking the article up into sections, and using the LLM to summarize each section, providing 3 key ideas of that section. 
 
