@@ -22,7 +22,7 @@ var pluginArticleIndexHeadingClassName = "article-index-ai-plugin-article-index-
 async function createSession() {
     return await ai.languageModel.create({
         systemPrompt: `You summarize text. Your input will be a piece of text, and your role is to identify 3 key ideas. Present the 3 key ideas as a JSON map. 
-            Provide 1 word as the heading (main idea of the sentence)(string, the key of the map entry), followed by a sentence (string) to explain the idea (the value of the map entry). Do not provide anything outside the JSON output.
+            Provide a short heading (main idea of the sentence)(string, the key of the map entry), followed by a sentence (string) to explain the idea (the value of the map entry). Only provide JSON output.
             Example output:
             {
                 "Example Heading 1": "Example Idea 1",
@@ -57,6 +57,9 @@ function findElementsMatchingClassWildcard(classNameWildcard, minCharLength) {
 function getElementsToSummarize() {
     const minCharLength = 1000;
     let elementsToSummarize = findElementsMatchingName("article", minCharLength);
+    if (elementsToSummarize.length === 0) {
+        elementsToSummarize = findElementsMatchingClassWildcard("article", minCharLength);
+    }
     if (elementsToSummarize.length === 0) {
         elementsToSummarize = findElementsMatchingClassWildcard("content", minCharLength);
     }
@@ -519,13 +522,14 @@ async function processParagraphs(paragraphsSquashed, paragraphsSquashedIdList, a
             addLoadingIndicator(articleIndexDiv);
             counter += 1;
             let attempts = 0;
-            let max_attempts = 4;
+            let max_attempts = 3;
             let errorOccurred = false;
             let summaryJson = "";
             let lastValidSummaryJson = "";
             let lastValidSummary = "";
 
             while (attempts < max_attempts) {
+                errorOccurred = false;
                 try {
                     attempts += 1;
 
@@ -535,6 +539,7 @@ async function processParagraphs(paragraphsSquashed, paragraphsSquashedIdList, a
                     } catch (err) {
                         console.log(`Error generating summary: ${err}`);
                         errorOccurred = true;
+                        session = null; // re-create the session, may help
                     }
 
                     try {
@@ -563,7 +568,7 @@ async function processParagraphs(paragraphsSquashed, paragraphsSquashedIdList, a
                     if (containsInvalidWord(summary, attempts === max_attempts)) {
                         lastValidSummaryJson = summaryJson;
                         lastValidSummary = summary;
-                        console.log(`Summary container an invalid word ${summary}`);
+                        console.log(`Summary contained an invalid word ${summary}`);
                         errorOccurred = true;
                     }
 
