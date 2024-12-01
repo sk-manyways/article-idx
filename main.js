@@ -1,7 +1,7 @@
 /*
 todo:
 - let the "Section" take you to that part of the article. (remove Source). (and a little arrow to jump back up?)
-- Can we make it "triggered"? Or we just make it configurable which domains use this.
+- Can we make it "triggered"? Or we just make it configurable which domains use this. Or a "generate index" button above articles found.
 - Better/consistent style
 - Execute on Ajax event
 - Caching (if it generated all sections)
@@ -10,6 +10,7 @@ todo:
 var pluginContainerDivClassName = "article-index-ai-plugin-container-div";
 var pluginOlClassName = "article-index-ai-plugin-ol";
 var pluginOlSpanHeaderClassName = "article-index-ai-plugin-ol-span-header";
+var pluginUpArrowToIndexClassName = "article-index-ai-plugin-up-arrow-to-index";
 var pluginRightArrowClassName = "article-index-ai-plugin-right-arrow";
 var pluginDownArrowClassName = "article-index-ai-plugin-down-arrow";
 var pluginOlDivHiddenClassName = "article-index-ai-plugin-ol-div-hidden";
@@ -78,20 +79,6 @@ function getRandomElementId() {
     return "article-index-ai-plugin-" + Math.random() * 100_000;
 }
 
-function findImmediateParentContainingText(mainElement, text) {
-    const elements = mainElement.querySelectorAll('*');
-    for (const element of elements) {
-        if (element.childNodes.length > 0) {
-            for (const node of element.childNodes) {
-                if (node.nodeType === Node.TEXT_NODE && node.textContent.toLowerCase().includes(text.toLowerCase())) {
-                    return element;
-                }
-            }
-        }
-    }
-    return null;
-}
-
 function findImmediateParentContainingTextAfterId(mainElement, text, startingId, lastGroupLength) {
     let passedIdElement = true;
     if (startingId) {
@@ -107,24 +94,6 @@ function findImmediateParentContainingTextAfterId(mainElement, text, startingId,
         if (found) return;
 
         if (!passedIdElement && node.nodeType === Node.ELEMENT_NODE && node.id === startingId) {
-            // get the deepest child, we may have a top-level article element, where then textContent is the entire article e.g. https://www.viksnewsletter.com/p/short-intro-to-automotive-lidar#article-index-ai-plugin-20372.110770104457
-            // let childNode = node.firstChild;
-            // let childToUse = node;
-            // while (childNode) {
-            //     childToUse = childNode;
-            //     childNode = childNode.firstChild;
-            // }
-            // if (node.nodeValue) {
-            //     charCount += node.nodeValue.length;
-            // } else {
-            //     let childNode = node.firstChild;
-            //     while (childNode && childNode.textContent && childNode.textContent > lastGroupLength) {
-            //         childNode = childNode.firstChild;
-            //     }
-            //     if (childNode) {
-            //         charCount += childNode.textContent.length;
-            //     }
-            // }
             charCount += node.textContent.length;
             passedIdElement = true;
             return; // Skip the subtree of the element with the specified startingId
@@ -181,18 +150,32 @@ function setIdOnElement(lastId, paragraphContainerElement, firstWord, paragraphs
 /*
 returns the id of the first element in the section
  */
-function addSquashedParagraph(squashed, currentGroup, lastId, paragraphContainerElement, paragraphsSquashedIdList, lastGroupLength) {
+function addSquashedParagraph(squashed, currentGroup, lastId, paragraphContainerElement, paragraphsSquashedIdList, lastGroupLength, articleIndexId) {
     squashed.push(currentGroup);
 
     // use the first word, to find the starting tag in HTML
     const firstWord = currentGroup.substring(0, currentGroup.indexOf(" "));
-    return setIdOnElement(lastId, paragraphContainerElement, firstWord, paragraphsSquashedIdList, lastGroupLength);
+    let newId = setIdOnElement(lastId, paragraphContainerElement, firstWord, paragraphsSquashedIdList, lastGroupLength);
+
+    addArrowLinkToId(newId, articleIndexId);
+
+    return newId;
 }
 
-function squashParagraphs(paragraphs, maxCharLength, paragraphContainerElement) {
+function addArrowLinkToId(elementIdToGetArrow, targetId) {
+    let element = document.getElementById(elementIdToGetArrow);
+    element.classList.add(pluginUpArrowToIndexClassName);
+    element.onclick = (event) => {
+        const arrowWidth = 24; // Width of the arrow image in pixels
+        if (event.offsetX <= arrowWidth) {
+            document.getElementById(targetId).scrollIntoView({behavior: 'smooth'});
+        }
+    };
+}
+
+function squashParagraphs(paragraphs, maxCharLength, paragraphContainerElement, articleIndexId) {
     let squashed = []
     let paragraphsSquashedIdList = []
-    debugger
 
     let lastId = null;
     let lastGroupLength = 0;
@@ -207,7 +190,7 @@ function squashParagraphs(paragraphs, maxCharLength, paragraphContainerElement) 
             currentGroup = currentGroup.trim();
         } else {
             if (currentGroup.length > 0) {
-                lastId = addSquashedParagraph(squashed, currentGroup, lastId, paragraphContainerElement, paragraphsSquashedIdList, lastGroupLength);
+                lastId = addSquashedParagraph(squashed, currentGroup, lastId, paragraphContainerElement, paragraphsSquashedIdList, lastGroupLength, articleIndexId);
                 lastGroupLength = currentGroup.length;
             }
             currentGroup = paragraph.substring(0, maxCharLength);
@@ -215,7 +198,7 @@ function squashParagraphs(paragraphs, maxCharLength, paragraphContainerElement) 
         }
     }
     if (currentGroup.length > 0) {
-        addSquashedParagraph(squashed, currentGroup, lastId, paragraphContainerElement, paragraphsSquashedIdList, lastGroupLength);
+        addSquashedParagraph(squashed, currentGroup, lastId, paragraphContainerElement, paragraphsSquashedIdList, lastGroupLength, articleIndexId);
     }
 
     return {
@@ -290,6 +273,13 @@ function addPluginStyles() {
           transition: transform 0.3s ease;
         }
         
+        .${pluginUpArrowToIndexClassName}::before {
+            content: "▲";
+            transform: rotate(270deg);
+            pointer-events: auto; /* Enable pointer events on ::before */
+            cursor: pointer;
+        }
+        
         .${pluginHighlightedTextClassName} {
             background-color: #f3f3c0;
             transition: transform 0.3s ease;
@@ -298,12 +288,15 @@ function addPluginStyles() {
     document.head.appendChild(styleElement);
 }
 
-function containsInvalidWord(summary) {
-    return summary.toLowerCase().includes("key idea")
-        || summary.toLowerCase().includes("key 1")
-        || summary.toLowerCase().includes("keyidea")
-        || summary.toLowerCase().includes("articleindex")
-        || summary.toLowerCase().includes("article index")
+/*
+param `relaxed` - if true, the check is less strict
+ */
+function containsInvalidWord(summary, relaxed) {
+    return !relaxed && summary.toLowerCase().includes("key idea")
+        || !relaxed && summary.toLowerCase().includes("key 1")
+        || !relaxed && summary.toLowerCase().includes("keyidea")
+        || !relaxed && summary.toLowerCase().includes("articleindex")
+        || !relaxed && summary.toLowerCase().includes("article index")
         || summary.toLowerCase().includes("example heading")
         || summary.toLowerCase().includes("example idea")
         || summary.toLowerCase().includes("object Object");
@@ -351,6 +344,7 @@ async function main() {
     for (const element of elementsToSummarize) {
         const articleIndexDiv = document.createElement("div");
         articleIndexDiv.classList.add(pluginContainerDivClassName);
+        articleIndexDiv.id = getRandomElementId();
 
         const articleIndexH3 = document.createElement("h3");
         articleIndexH3.textContent = "Article Index (AI generated)"
@@ -361,7 +355,7 @@ async function main() {
         let {
             paragraphsSquashed,
             paragraphsSquashedIdList
-        } = squashParagraphs(allParagraphs, maxCharLength, element);
+        } = squashParagraphs(allParagraphs, maxCharLength, element, articleIndexDiv.id);
 
         element.prepend(articleIndexDiv);
 
@@ -381,10 +375,18 @@ function removeLoadingIndicator(parent) {
     if (loader) loader.remove();
 }
 
-/*
-Fixes double quotes within double quotes.
- */
-function fixBasicJsonMistakes(summary) {
+function removeLastComma(input) {
+    let lastComma = input.lastIndexOf(",");
+    let lastDoubleQuote = input.lastIndexOf('"');
+
+    if (lastComma > lastDoubleQuote) {
+        return input.substring(0, lastDoubleQuote + 1) + input.substring(lastComma + 1);
+    }
+
+    return input;
+}
+
+function fixDoubleQuotesWithinDoubleQuotes(summary) {
     const lines = summary.split('\n');
 
     const processedLines = lines.map(line => {
@@ -421,7 +423,12 @@ function fixBasicJsonMistakes(summary) {
     });
 
     // Join the processed lines back into a single string
-    return processedLines.join('\n');
+    return processedLines.join(' ');
+}
+
+function fixBasicJsonMistakes(summary) {
+    let line = removeLastComma(summary);
+    return fixDoubleQuotesWithinDoubleQuotes(line);
 }
 
 async function processParagraphs(paragraphsSquashed, paragraphsSquashedIdList, articleIndexDiv) {
@@ -461,7 +468,7 @@ async function processParagraphs(paragraphsSquashed, paragraphsSquashedIdList, a
                         errorOccurred = true;
                     }
 
-                    if (containsInvalidWord(summary)) {
+                    if (containsInvalidWord(summary, attempts === max_attempts)) {
                         console.log(`Summary container an invalid word ${summary}`);
                         errorOccurred = true;
                     }
@@ -481,14 +488,6 @@ async function processParagraphs(paragraphsSquashed, paragraphsSquashedIdList, a
         }
     }
 }
-
-// function getTopmostElement(elements) {
-//     return Array.from(elements).reduce((topmost, current) => {
-//         const topmostY = topmost.getBoundingClientRect().top;
-//         const currentY = current.getBoundingClientRect().top;
-//         return currentY < topmostY ? current : topmost;
-//     });
-// }
 
 /*
 Identify areas to summarize.
