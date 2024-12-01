@@ -239,6 +239,7 @@ function addPluginStyles() {
         `
             .${pluginContainerDivClassName} {
                 padding-left: 2em;
+                margin-bottom: 2em;
             }
             .${pluginOlClassName} { 
                 padding-left: 3em; 
@@ -408,50 +409,82 @@ function removeLastComma(input) {
 }
 
 function fixDoubleQuotesWithinDoubleQuotes(summary) {
-    const lines = summary.split('\n');
+    let result = '';
+    summary = summary.trim();
+    let lastDoubleQuoteIndex = summary.lastIndexOf('"');
+    let additionalAppend = "";
+    for (let i = 0; i < summary.length; i++) {
+        let c = summary[i];
+        if (c === '\n') {
+            continue;
+        }
+        if (c === '"') {
+            let isFirstCharOfSummary = (i === summary.indexOf('"'));
+            let isLastDoubleQuote = (i === lastDoubleQuoteIndex);
+            let nextChar = summary[i + 1] || '';
+            let prevChar2 = summary[i - 2] || '';
 
-    const processedLines = lines.map(line => {
-        let result = '';
-        line = line.trim();
-        let lastDoubleQuoteIndex = line.lastIndexOf('"');
-
-        for (let i = 0; i < line.length; i++) {
-            let c = line[i];
-            if (c === '"') {
-                // Check if this double quote should be removed
-                let isFirstCharOfLine = (i === line.indexOf('"'));
-                let isLastDoubleQuote = (i === lastDoubleQuoteIndex);
-                let nextChar = line[i + 1] || '';
-                let prevChar1 = line[i - 1] || '';
-                let prevChar2 = line[i - 2] || '';
-
-                if (
-                    !isFirstCharOfLine &&    // Not the first character of the line
-                    !isLastDoubleQuote &&    // Not the last double quote in the line
-                    nextChar !== ':' &&      // Not followed by a colon
-                    nextChar !== ',' &&      // Not followed by a comma
-                    prevChar1 !== ':' &&     // Not preceded by a colon
-                    prevChar2 !== ':' &&      // Not preceded by a colon two characters back
-                    prevChar1 !== ',' &&     // Not preceded by a comma
-                    prevChar2 !== ','        // Not preceded by a comma two characters back
-                ) {
-                    // Skip this double quote
-                    continue;
+            if (
+                !isFirstCharOfSummary &&    // Not the first character of the summary
+                !isLastDoubleQuote &&       // Not the last double quote in the summary
+                nextChar !== ':' &&         // Not followed by a colon
+                nextChar !== ',' &&         // Not followed by a comma
+                nextChar !== '}' &&         // Not followed by a closing brace
+                prevChar2 !== ':' &&        // Not preceded by a colon two characters back
+                prevChar2 !== ','           // Not preceded by a comma two characters back
+            ) {
+                // Skip this double quote
+                continue;
+            }
+        } else if (c === ',' && summary[i - 1] === '"') {
+            // add a missing double quote after a comma
+            for (let k = i + 1; k < i + 10; k++) {
+                if (k < summary.length) {
+                    let charAt = summary[k];
+                    if ((charAt >= 'a' && charAt <= 'z') || (charAt >= 'A' && charAt <= 'Z')) {
+                        additionalAppend = '"';
+                        break;
+                    }
+                    if (charAt === '"') {
+                        break;
+                    }
                 }
             }
-            // Add the character to the result
-            result += c;
         }
-        return result;
-    });
+        result += c + additionalAppend;
+        additionalAppend = "";
+    }
 
-    // Join the processed lines back into a single string
-    return processedLines.join(' ');
+    return result;
+}
+
+function findLastCharacterIndex(input) {
+    const pattern = /[a-zA-Z0-9.?!]/g;
+    let lastIndex = -1;
+
+    let match;
+    while ((match = pattern.exec(input)) !== null) {
+        lastIndex = match.index;
+    }
+
+    return lastIndex;
+}
+
+function addMissingDoubleQuote(summary) {
+    let lastAlphaNumeric = findLastCharacterIndex(summary);
+    let lastDoubleQuote = summary.lastIndexOf('"');
+
+    if (lastAlphaNumeric > lastDoubleQuote) {
+        return summary.substring(0, lastAlphaNumeric + 1) + '"' + summary.substring(lastAlphaNumeric + 1);
+    }
+
+    return summary;
 }
 
 function fixBasicJsonMistakes(summary) {
     let line = removeLastComma(summary);
-    return fixDoubleQuotesWithinDoubleQuotes(line);
+    line = fixDoubleQuotesWithinDoubleQuotes(line);
+    return addMissingDoubleQuote(line);
 }
 
 function removeBackSlashes(summary) {
@@ -471,6 +504,8 @@ async function processParagraphs(paragraphsSquashed, paragraphsSquashedIdList, a
             let max_attempts = 4;
             let errorOccurred = false;
             let summaryJson = "";
+            let lastValidSummaryJson = "";
+            let lastValidSummary = "";
 
             while (attempts < max_attempts) {
                 try {
@@ -499,9 +534,17 @@ async function processParagraphs(paragraphsSquashed, paragraphsSquashedIdList, a
                     } catch (err) {
                         console.log(`Error parsing summary json. Summary ${summary}; Error: ${err}`);
                         errorOccurred = true;
+
+                        if (attempts === max_attempts) {
+                            summaryJson = lastValidSummaryJson;
+                            summary = lastValidSummary;
+                            errorOccurred = false;
+                        }
                     }
 
                     if (containsInvalidWord(summary, attempts === max_attempts)) {
+                        lastValidSummaryJson = summaryJson;
+                        lastValidSummary = summary;
                         console.log(`Summary container an invalid word ${summary}`);
                         errorOccurred = true;
                     }
