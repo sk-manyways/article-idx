@@ -263,7 +263,7 @@ function addPluginStyles() {
             }
             
             .${pluginOlDivVisibleClassName} {
-              max-height: 500px;
+              max-height: 250px;
               opacity: 1;
               transition: max-height 0.3s ease, opacity 0.3s ease;
             }
@@ -583,40 +583,6 @@ async function processParagraphs(paragraphsSquashed, paragraphsSquashedIdList, a
     }
 }
 
-/*
-Identify areas to summarize.
-
-Identify paragraphs.
-
-If < 600 chars, ignore.
-
-take paragraphs, while < 5000 characters
-if paragraph is larger than 5000 characters, then break up into sentences.
-
-Take up to < 5000 characters of text.
-
-summarize
-
-wrap the text summarized in a span, with a specific id
-
-at the top of the article, add a section ArticleIndex (AI generated):
-(Can we highlight the text after the user clicked the hyperlink, and then fade away)
-Section #1 -> Hyperlink
-- Point #1
-- Point #2
-- Point #3
-
-Section #2 -> Hyperlink
-- Point #1
-- Point #2
-- Point #3
-
-Section #3 -> Hyperlink
-- Point #1
-- Point #2
-- Point #3
- */
-
 async function aiAvailable() {
     return typeof (ai) === "object" && (await ai.languageModel.capabilities()).available === 'readily';
 }
@@ -636,12 +602,12 @@ chrome.storage.sync.get('whitelist', function (data) {
     const isWhitelisted = regexList.some(regex => regex.test(currentHost));
 
     if (whitelist.length === 0 || isWhitelisted) {
-        console.log('This site is whitelisted, will generate article idx');
+        // console.log('This site is whitelisted, will generate article idx');
         (async () => {
             await initPlugin();
         })();
     } else {
-        console.log('This site is not whitelisted, will not generate article idx.');
+        // console.log('This site is not whitelisted, will not generate article idx.');
     }
 });
 
@@ -649,39 +615,15 @@ async function initPlugin() {
     if (await aiAvailable()) {
         await main();
 
-        // add a hook for ajax requests
-        (function () {
-            const oldFetch = window.fetch;
+        // listen for DOM changes, to pick up new articles
+        const observer = new MutationObserver(mutations => {
+            mutations.forEach(mutation => {
+                // console.log('article-idx, DOM changed:', mutation);
+                main();
+            });
+        });
 
-            window.fetch = function (...args) {
-                return oldFetch.apply(this, args)
-                    .then(response => {
-                        response.clone().text().then(body => {
-                            main();
-                        });
-                        return response;
-                    });
-            };
-        })();
-
-        (function () {
-            const oldXHR = window.XMLHttpRequest;
-
-            function newXHR() {
-                const xhr = new oldXHR();
-
-                xhr.addEventListener('readystatechange', function () {
-                    if (xhr.readyState === 4) {
-                        console.log('AJAX finished:', xhr.responseURL);
-                        main();
-                    }
-                });
-
-                return xhr;
-            }
-
-            window.XMLHttpRequest = newXHR;
-        })();
+        observer.observe(document.body, {childList: true, subtree: true});
     }
 }
 
