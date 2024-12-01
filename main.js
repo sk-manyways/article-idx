@@ -3,10 +3,11 @@ todo:
 - Settings:
     - Enabled for whitelist; or enabled for all
     - Enabled, but give clickable "generate index" buttons
-- Execute on Ajax event
+- improve system prompt
 - Caching (if it generated all sections)
  */
 
+var pluginAlreadyProcessedClassName = "article-index-ai-plugin-already-processed";
 var pluginContainerDivClassName = "article-index-ai-plugin-container-div";
 var pluginOlClassName = "article-index-ai-plugin-ol";
 var pluginOlSpanHeaderClassName = "article-index-ai-plugin-ol-span-header";
@@ -43,12 +44,12 @@ async function getSummary(text) {
 }
 
 function findElementsMatchingName(elementName, minCharLength) {
-    return Array.from(document.querySelectorAll(`${elementName}:not(:has(${elementName}))`))
+    return Array.from(document.querySelectorAll(`${elementName}:not(:has(${elementName})):not(.${pluginAlreadyProcessedClassName})`))
         .filter(el => el.innerText.trim().length >= minCharLength);
 }
 
 function findElementsMatchingClassWildcard(classNameWildcard, minCharLength) {
-    return Array.from(document.querySelectorAll(`[class*="${classNameWildcard}"]`))
+    return Array.from(document.querySelectorAll(`[class*="${classNameWildcard}"]:not(.${pluginAlreadyProcessedClassName})`))
         .filter(el => !el.querySelector(`[class*="${classNameWildcard}"]`)
             && el.innerText.trim().length >= minCharLength);
 }
@@ -65,6 +66,11 @@ function getElementsToSummarize() {
     if (elementsToSummarize.length === 0) {
         elementsToSummarize = findElementsMatchingClassWildcard("post", minCharLength);
     }
+
+    for (const element of elementsToSummarize) {
+        element.classList.add(pluginAlreadyProcessedClassName);
+    }
+
     return elementsToSummarize || [];
 }
 
@@ -134,6 +140,9 @@ returns the id of the first element in the section
 function setIdOnElement(lastId, paragraphContainerElement, firstWord, paragraphsSquashedIdList, lastGroupLength) {
     let element = findImmediateParentContainingTextAfterId(paragraphContainerElement, firstWord, lastId, lastGroupLength);
     let idUsed = -1;
+    if (!element) {
+        return null;
+    }
     if (element.id) {
         paragraphsSquashedIdList.push(element.id);
         idUsed = element.id;
@@ -157,7 +166,7 @@ function addSquashedParagraph(squashed, currentGroup, lastId, paragraphContainer
     const firstWord = currentGroup.substring(0, currentGroup.indexOf(" "));
     let newId = setIdOnElement(lastId, paragraphContainerElement, firstWord, paragraphsSquashedIdList, lastGroupLength);
 
-    if (doAddArrowLinkToId) {
+    if (doAddArrowLinkToId && newId) {
         addArrowLinkToId(newId, articleIndexId);
     }
 
@@ -302,6 +311,7 @@ function addPluginStyles() {
             h3.${pluginArticleIndexHeadingClassName} {
               font-size: 22px;
               font-family: monospace;
+              margin-bottom: 5px;
             }
             
             #${pluginLoadingIndicatorId} {
@@ -608,13 +618,40 @@ async function aiAvailable() {
     return typeof (ai) === "object" && (await ai.languageModel.capabilities()).available === 'readily';
 }
 
-async function x() {
-
-}
-
 if (await aiAvailable()) {
+    await main();
+
     // add a hook for ajax requests
-    window.addEventListener("ajaxComplete", async (event) => {
-        x();
-    });
+    (function () {
+        const oldFetch = window.fetch;
+
+        window.fetch = function (...args) {
+            return oldFetch.apply(this, args)
+                .then(response => {
+                    response.clone().text().then(body => {
+                        main();
+                    });
+                    return response;
+                });
+        };
+    })();
+
+    (function () {
+        const oldXHR = window.XMLHttpRequest;
+
+        function newXHR() {
+            const xhr = new oldXHR();
+
+            xhr.addEventListener('readystatechange', function () {
+                if (xhr.readyState === 4) {
+                    console.log('AJAX finished:', xhr.responseURL);
+                    main();
+                }
+            });
+
+            return xhr;
+        }
+
+        window.XMLHttpRequest = newXHR;
+    })();
 }
