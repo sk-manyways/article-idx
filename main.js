@@ -1,6 +1,8 @@
 /*
 todo:
-- Can we make it "triggered"? Or we just make it configurable which domains use this. Or a "generate index" button above articles found.
+- Settings:
+    - Enabled for whitelist; or enabled for all
+    - Enabled, but give clickable "generate index" buttons
 - Execute on Ajax event
 - Caching (if it generated all sections)
  */
@@ -354,6 +356,9 @@ function appendElements(counter, articleIndexDiv, summaryJson, doAppendSection, 
     if (doAppendSummary) {
         const summaryElement = createSummaryElement(summaryJson);
         articleIndexDiv.appendChild(summaryElement);
+    } else {
+        const brElement = document.createElement("br");
+        articleIndexDiv.appendChild(brElement);
     }
 }
 
