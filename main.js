@@ -1,8 +1,6 @@
     /*
     todo:
-    - let the "Section" take you to that part of the article. (remove Source). (and a little arrow to jump back up?)
     - Can we make it "triggered"? Or we just make it configurable which domains use this. Or a "generate index" button above articles found.
-    - Better/consistent style
     - Execute on Ajax event
     - Caching (if it generated all sections)
      */
@@ -263,6 +261,7 @@
                 font-family: Spectral, serif;
                 cursor: pointer;
                 font-weight: 700;
+                line-height: 11px;
             }
             .${pluginOlSpanHeaderClassName}:hover {
                 text-decoration: underline;
