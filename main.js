@@ -1,12 +1,12 @@
 /*
 todo:
 - Settings:
-    - Enabled for whitelist; or enabled for all
     - Enabled, but give clickable "generate index" buttons
 - improve system prompt
 - Caching (if it generated all sections)
  */
 
+// using var, let at times failed to load in time
 var pluginAlreadyProcessedClassName = "article-index-ai-plugin-already-processed";
 var pluginContainerDivClassName = "article-index-ai-plugin-container-div";
 var pluginOlClassName = "article-index-ai-plugin-ol";
@@ -269,11 +269,11 @@ function addPluginStyles() {
             }
             
             .${pluginOlSpanHeaderClassName} {
-                font-size: 19px;
+                font-size: 1.1em;
                 font-family: "Libre Franklin", Spectral, serif;
                 cursor: pointer;
                 font-weight: 500;
-                line-height: 11px;
+                line-height: 0.6em;
             }
             .${pluginOlSpanHeaderClassName}:hover {
                 text-decoration: underline;
@@ -293,7 +293,7 @@ function addPluginStyles() {
             .${pluginRightArrowClassName}::after, .${pluginUpArrowToIndexClassName}::before {
               background-color: #60c0ed;
               font-family: times, serif;
-              padding: 5px;
+              padding: 0.4em 0.4em 0.2em 0.4em;
               margin-right: 3px;
               font-size: 0.4em;
               border-radius: 5px;
@@ -302,14 +302,17 @@ function addPluginStyles() {
               pointer-events: auto; /* Enable pointer events */
               border-left: 2px solid transparent;
               border-right: 1px solid transparent;
+              position: relative;
+              bottom: 5px;
             }
             
             .${pluginUpArrowToIndexClassName}::before {
                 content: "▲";
+                padding: 0.6em;
             }
             
             h3.${pluginArticleIndexHeadingClassName} {
-              font-size: 22px;
+              font-size: 1.2em;
               font-family: monospace;
               margin-bottom: 5px;
             }
@@ -618,40 +621,67 @@ async function aiAvailable() {
     return typeof (ai) === "object" && (await ai.languageModel.capabilities()).available === 'readily';
 }
 
-if (await aiAvailable()) {
-    await main();
+chrome.storage.sync.get('whitelist', function (data) {
+    let whitelist = data.whitelist || [];
+    if (whitelist.length === 1 && whitelist[0] === '') {
+        whitelist = [];
+    }
+    const currentHost = window.location.hostname;
 
-    // add a hook for ajax requests
-    (function () {
-        const oldFetch = window.fetch;
+    const regexList = whitelist.map(pattern => {
+        const escapedPattern = pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); // Escape regex special characters
+        return new RegExp('^' + escapedPattern.replace(/\\\*/g, '.*') + '$');
+    });
 
-        window.fetch = function (...args) {
-            return oldFetch.apply(this, args)
-                .then(response => {
-                    response.clone().text().then(body => {
-                        main();
+    const isWhitelisted = regexList.some(regex => regex.test(currentHost));
+
+    if (whitelist.length === 0 || isWhitelisted) {
+        console.log('This site is whitelisted, will generate article idx');
+        (async () => {
+            await initPlugin();
+        })();
+    } else {
+        console.log('This site is not whitelisted, will not generate article idx.');
+    }
+});
+
+async function initPlugin() {
+    if (await aiAvailable()) {
+        await main();
+
+        // add a hook for ajax requests
+        (function () {
+            const oldFetch = window.fetch;
+
+            window.fetch = function (...args) {
+                return oldFetch.apply(this, args)
+                    .then(response => {
+                        response.clone().text().then(body => {
+                            main();
+                        });
+                        return response;
                     });
-                    return response;
+            };
+        })();
+
+        (function () {
+            const oldXHR = window.XMLHttpRequest;
+
+            function newXHR() {
+                const xhr = new oldXHR();
+
+                xhr.addEventListener('readystatechange', function () {
+                    if (xhr.readyState === 4) {
+                        console.log('AJAX finished:', xhr.responseURL);
+                        main();
+                    }
                 });
-        };
-    })();
 
-    (function () {
-        const oldXHR = window.XMLHttpRequest;
+                return xhr;
+            }
 
-        function newXHR() {
-            const xhr = new oldXHR();
-
-            xhr.addEventListener('readystatechange', function () {
-                if (xhr.readyState === 4) {
-                    console.log('AJAX finished:', xhr.responseURL);
-                    main();
-                }
-            });
-
-            return xhr;
-        }
-
-        window.XMLHttpRequest = newXHR;
-    })();
+            window.XMLHttpRequest = newXHR;
+        })();
+    }
 }
+
