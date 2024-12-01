@@ -338,7 +338,7 @@ function containsInvalidWord(summary, relaxed) {
         || !relaxed && summary.toLowerCase().includes("article index")
         || summary.toLowerCase().includes("example heading")
         || summary.toLowerCase().includes("example idea")
-        || summary.toLowerCase().includes("object Object");
+        || summary.includes("object Object");
 }
 
 function createCollapsibleDiv(text, collapsibleToggleElement) {
